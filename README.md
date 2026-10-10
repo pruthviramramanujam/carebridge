@@ -72,9 +72,17 @@ This project is intended for fictional data only. Do not upload real patient rec
 
 ## Deployment
 
-Public Vercel URL: **[Add deployed Vercel URL]**
+Public Vercel URL:[ **\[tracemed-five-bay]**](https://tracemed-five-bay.vercel.app/)
 
 ## Team and Contributors
 
-- [Team member name] — [role or contribution]
-- [Team member name] — [role or contribution]
+## 👥 Team Members & Contributions
+
+| Member | Name | Contribution |
+|---|---|---|
+| Member 1 | Vinay | Frontend Development — UI design, navigation, responsive layouts, and medical document upload interface. |
+| Member 2 | Qamar | OCR & Data Extraction — Browser-local image OCR, medical fact extraction, and OCR confidence validation. |
+| Member 3 | Pruthvi | Medical Record Reconciliation — Conflict detection, duplicate document detection, missing information checks, and source traceability. |
+| Member 4 | Stalin | Testing & Integration — Application testing, component integration, validation of patient-profile isolation, and deployment verification. |
+
+*All extracted medical information is intended for human review. TraceMed is a record-reconciliation support tool, not a diagnostic system.*
