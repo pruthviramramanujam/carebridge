@@ -76,7 +76,8 @@ Public Vercel URL:[ **\tracemed-five-bay**](https://tracemed-five-bay.vercel.app
 
 ## Video Demo
 Video Link : 
-[▶ **Watch the TraceMed Demo Video**](public/traceMed.mp4)
+[▶ **Watch the TraceMed Demo Video**](https://drive.google.com/file/d/12wYNRQNNZjUcMJsaut4Xhcw31iJJufBj/view?usp=sharing)
+[▶ **Watch the TraceMed Demo Video repo directory**](public/traceMed.mp4)
 
 ## Team and Contributors
 
