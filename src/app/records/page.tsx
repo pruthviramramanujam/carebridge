@@ -1,8 +1,14 @@
 import { HandoffReport } from "@/components/HandoffReport";
+import { demoDocuments, demoFacts } from "@/lib/demo-data";
+import { reconcileMedicalRecords } from "@/lib/medical-reconciliation";
 import { getHandoffReport, listRecords } from "@/lib/repository";
 
 export default async function RecordsPage() {
-  const [report, records] = await Promise.all([getHandoffReport(), listRecords()]);
+  const [report, records, medicalFindings] = await Promise.all([
+    getHandoffReport(),
+    listRecords(),
+    Promise.resolve(reconcileMedicalRecords(demoDocuments, demoFacts)),
+  ]);
 
   return (
     <main className="min-h-screen bg-slate-100 px-6 py-10">
@@ -19,7 +25,7 @@ export default async function RecordsPage() {
           </span>
         </header>
 
-        <HandoffReport report={report} />
+        <HandoffReport report={report} medicalFindings={medicalFindings} />
 
         <section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
           <h2 className="text-xl font-semibold text-slate-900">Document timeline</h2>
