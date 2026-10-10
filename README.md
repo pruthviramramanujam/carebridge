@@ -72,7 +72,7 @@ This project is intended for fictional data only. Do not upload real patient rec
 
 ## Deployment
 
-Public Vercel URL:[ **\[tracemed-five-bay]**](https://tracemed-five-bay.vercel.app/)
+Public Vercel URL:[ **\tracemed-five-bay**](https://tracemed-five-bay.vercel.app/)
 
 ## Team and Contributors
 
