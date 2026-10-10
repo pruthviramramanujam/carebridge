@@ -13,9 +13,23 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "CareBridge | Medical History Gap Detector",
+  applicationName: "TraceMed",
+  title: "TraceMed | Medical Record Reconciliation",
   description:
-    "Organize fragmented medical history and surface missing dates, conflicting values, duplicates, and source gaps for human review.",
+    "Organize medical records, extract explicitly labeled facts, and surface missing dates, conflicting values, duplicates, and source gaps for human review.",
+  openGraph: {
+    title: "TraceMed | Medical Record Reconciliation",
+    description:
+      "Evidence-linked medical record review with browser-local image OCR. Findings require human review and are not clinical conclusions.",
+    siteName: "TraceMed",
+    type: "website",
+  },
+  twitter: {
+    card: "summary",
+    title: "TraceMed | Medical Record Reconciliation",
+    description:
+      "Evidence-linked medical record review with browser-local image OCR. Findings require human review and are not clinical conclusions.",
+  },
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {

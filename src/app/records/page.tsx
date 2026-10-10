@@ -19,7 +19,7 @@ export default async function RecordsPage() {
             <p className="text-xs font-semibold uppercase tracking-[0.25em] text-sky-700">
               Patient records
             </p>
-            <h1 className="mt-2 text-4xl font-semibold text-slate-900">CareBridge overview</h1>
+            <h1 className="mt-2 text-4xl font-semibold text-slate-900">TraceMed overview</h1>
           </div>
           <span className="rounded-full border border-slate-200 bg-white px-3 py-1 text-sm text-slate-600">
             {records.length} records linked

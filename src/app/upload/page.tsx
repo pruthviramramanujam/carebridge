@@ -326,8 +326,8 @@ export default function UploadPage() {
     <main className="min-h-screen bg-slate-100 px-4 py-8 sm:px-6 sm:py-10">
       <div className="mx-auto max-w-3xl space-y-6">
         <header>
-          <p className="text-xs font-semibold uppercase tracking-[0.24em] text-sky-700">Demo intake</p>
-          <h1 className="mt-2 text-3xl font-semibold text-slate-900">Add a document</h1>
+          <p className="text-xs font-semibold uppercase tracking-[0.24em] text-sky-700">TraceMed · demo intake</p>
+          <h1 className="mt-2 text-3xl font-semibold text-slate-900">TraceMed document intake</h1>
           <p className="mt-3 text-sm leading-6 text-slate-600">
             Use fictional sample files only. Do not upload real patient records or identifying information.
           </p>

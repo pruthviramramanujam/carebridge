@@ -79,9 +79,9 @@ export function ProductHomepage() {
     <main className="flex-1 bg-[#f5f8f7] font-sans text-[#142f38]">
       <nav aria-label="Main navigation" className="border-b border-white/10 bg-[#0b2932] text-white">
         <div className="mx-auto flex min-h-[72px] max-w-7xl items-center justify-between gap-4 px-5 sm:px-8">
-          <Link href="/" aria-label="CareBridge home" className="inline-flex items-center gap-3 rounded-sm focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-[#9fe3d2]">
-            <span aria-hidden="true" className="flex h-9 w-9 items-center justify-center rounded-xl border border-[#6bd0b5]/40 bg-[#174b50] text-lg font-semibold text-[#a8ead6]">C</span>
-            <span className="text-lg font-semibold tracking-wide">CareBridge</span>
+          <Link href="/" aria-label="TraceMed home" className="inline-flex items-center gap-3 rounded-sm focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-[#9fe3d2]">
+            <span aria-hidden="true" className="flex h-9 w-9 items-center justify-center rounded-xl border border-[#6bd0b5]/40 bg-[#174b50] text-lg font-semibold text-[#a8ead6]">T</span>
+            <span className="text-lg font-semibold tracking-wide">TraceMed</span>
           </Link>
           <div className="flex items-center gap-4 sm:gap-7">
             <Link href="/records" className="rounded-sm text-sm text-slate-200 hover:text-white focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-[#9fe3d2]">Records</Link>
@@ -99,7 +99,7 @@ export function ProductHomepage() {
             </p>
             <h1 className="mt-7 max-w-[15ch] text-4xl font-semibold leading-[1.08]">Important details shouldn&apos;t get lost between providers.</h1>
             <p className="mt-6 max-w-xl text-base leading-7 text-slate-300">
-              CareBridge organizes fragmented medical history and flags missing dates, conflicting values, duplicate documents, and gaps in source context for human review.
+              TraceMed organizes fragmented medical history and flags missing dates, conflicting values, duplicate documents, and gaps in source context for human review.
             </p>
             <div className="mt-8 flex flex-col gap-3 sm:flex-row">
               <Link href="/records" className="inline-flex min-h-12 items-center justify-center rounded-lg bg-[#9fe3d2] px-5 py-3 text-sm font-semibold text-[#10343a] transition-colors hover:bg-[#c0f2e4] focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-white">View reconciliation report</Link>
@@ -170,15 +170,15 @@ export function ProductHomepage() {
           <ul className="grid gap-3 sm:grid-cols-2">
             <li className="rounded-lg border border-[#cfdfd8] bg-white/75 p-4 text-sm leading-6 text-slate-700">All included patient and document examples are fictional demo data.</li>
             <li className="rounded-lg border border-[#cfdfd8] bg-white/75 p-4 text-sm leading-6 text-slate-700">Findings require human review. They are not diagnoses or treatment recommendations.</li>
-            <li className="rounded-lg border border-[#cfdfd8] bg-white/75 p-4 text-sm leading-6 text-slate-700">PDF parsing and image OCR are not implemented; these files are accepted as metadata only.</li>
-            <li className="rounded-lg border border-[#cfdfd8] bg-white/75 p-4 text-sm leading-6 text-slate-700">Uploaded entries stay separate and are not automatically reconciled. Browser storage is demo-only.</li>
+            <li className="rounded-lg border border-[#cfdfd8] bg-white/75 p-4 text-sm leading-6 text-slate-700">PNG and JPEG text recognition runs locally in the browser. PDF parsing is not implemented, and OCR facts require human review.</li>
+            <li className="rounded-lg border border-[#cfdfd8] bg-white/75 p-4 text-sm leading-6 text-slate-700">Uploaded entries are compared only within their selected synthetic profile. Browser storage is demo-only.</li>
           </ul>
         </div>
       </section>
 
       <footer className="bg-[#0b2932] text-white">
         <div className="mx-auto flex max-w-7xl flex-col gap-7 px-5 py-12 sm:px-8 lg:flex-row lg:items-end lg:justify-between">
-          <div><p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#9fe3d2]">CareBridge</p><h2 className="mt-3 max-w-xl text-2xl font-semibold leading-tight">Bring the record together. Make room for a better handoff.</h2><p className="mt-3 text-sm text-slate-300">Fictional demo · Human review required</p></div>
+          <div><p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#9fe3d2]">TraceMed</p><h2 className="mt-3 max-w-xl text-2xl font-semibold leading-tight">Bring the record together. Make room for a better handoff.</h2><p className="mt-3 text-sm text-slate-300">Fictional demo · Human review required</p></div>
           <div className="flex flex-col gap-3 sm:flex-row">
             <Link href="/records" className="inline-flex min-h-11 items-center justify-center rounded-lg bg-[#9fe3d2] px-5 py-3 text-sm font-semibold text-[#10343a] hover:bg-[#c0f2e4] focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-white">Open the report</Link>
             <Link href="/upload" className="inline-flex min-h-11 items-center justify-center rounded-lg border border-white/30 px-5 py-3 text-sm font-semibold text-white hover:bg-white/5 focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-[#9fe3d2]">Go to document intake</Link>
