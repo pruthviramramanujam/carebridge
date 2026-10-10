@@ -3,7 +3,7 @@ import type { ExtractionResult } from "./types.ts";
 
 export type ImageOCRResult = {
   text: string;
-  confidence: number;
+  confidence?: number;
 };
 
 export type ImageProcessingStage =
@@ -74,9 +74,13 @@ export async function extractImageMedicalFacts(
   }
 
   const sourceText = typeof recognized.text === "string" ? recognized.text : "";
-  const confidence = Number.isFinite(recognized.confidence)
-    ? Math.max(0, Math.min(100, recognized.confidence))
-    : 0;
+  const rawConfidence = recognized.confidence;
+  const confidence = typeof rawConfidence === "number"
+    && Number.isFinite(rawConfidence)
+    && rawConfidence >= 0
+    && rawConfidence <= 100
+    ? rawConfidence
+    : null;
   if (!sourceText.trim()) {
     return failedExtraction(
       sourceText,
@@ -84,6 +88,15 @@ export async function extractImageMedicalFacts(
       patientId,
       "No readable text was recognized in this image. No medical facts were extracted or reconciled.",
       confidence,
+    );
+  }
+  if (confidence === null) {
+    return failedExtraction(
+      sourceText,
+      metadata,
+      patientId,
+      "OCR confidence is unavailable or invalid. Recognized text is preserved for review, but no medical facts were extracted or reconciled.",
+      null,
     );
   }
   if (confidence < 35) {
@@ -104,6 +117,10 @@ export async function extractImageMedicalFacts(
 
   return {
     ...extraction,
+    facts: extraction.facts.map((fact) => ({
+      ...fact,
+      verificationStatus: "needs_review",
+    })),
     warnings,
     confidence,
   };

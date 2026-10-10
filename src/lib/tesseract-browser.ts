@@ -73,6 +73,7 @@ export const recognizeImageInBrowser: ImageRecognizer = async (
     signal?.addEventListener("abort", abortListener, { once: true });
     const recognition = worker.recognize(file).then(({ data }) => ({
       text: data.text,
+      // This integration uses page-level confidence only; it does not evaluate per-word scores.
       confidence: data.confidence,
     }));
     return await recognizeWithAbort(recognition, signal);

@@ -117,6 +117,96 @@ test("very low confidence OCR is preserved for inspection but not extracted as f
   assert.ok(result.warnings.some((warning) => warning.includes("very low")));
 });
 
+test("OCR confidence exactly 35 allows extraction with a low-confidence warning", async () => {
+  const result = await extractImageMedicalFacts(
+    imageFile(),
+    metadata("ocr-confidence-35"),
+    PATIENT_A,
+    async () => ({ text: "Medication: ExampleMedicine\nDose: 5 mg", confidence: 35 }),
+  );
+
+  assert.equal(result.extractionStatus, "completed");
+  assert.equal(result.confidence, 35);
+  assert.equal(result.facts.length, 2);
+  assert.equal(result.facts.every((fact) => fact.verificationStatus === "needs_review"), true);
+  assert.ok(result.warnings.some((warning) => warning.includes("OCR confidence is low (35%)")));
+});
+
+test("OCR confidence exactly 65 allows extraction without a low-confidence warning", async () => {
+  const result = await extractImageMedicalFacts(
+    imageFile(),
+    metadata("ocr-confidence-65"),
+    PATIENT_A,
+    async () => ({ text: "Medication: ExampleMedicine\nDose: 5 mg", confidence: 65 }),
+  );
+
+  assert.equal(result.extractionStatus, "completed");
+  assert.equal(result.confidence, 65);
+  assert.equal(result.facts.length, 2);
+  assert.equal(result.facts.every((fact) => fact.verificationStatus === "needs_review"), true);
+  assert.equal(result.warnings.some((warning) => warning.includes("OCR confidence is low")), false);
+});
+
+test("OCR confidence values 34, 64, and 100 follow the configured thresholds", async () => {
+  const cases = [
+    { confidence: 34, status: "failed", lowConfidenceWarning: true },
+    { confidence: 64, status: "completed", lowConfidenceWarning: true },
+    { confidence: 100, status: "completed", lowConfidenceWarning: false },
+  ] as const;
+
+  for (const { confidence, status, lowConfidenceWarning } of cases) {
+    const result = await extractImageMedicalFacts(
+      imageFile(),
+      metadata(`ocr-confidence-${confidence}`),
+      PATIENT_A,
+      async () => ({ text: "Medication: ExampleMedicine\nDose: 5 mg", confidence }),
+    );
+
+    assert.equal(result.extractionStatus, status);
+    assert.equal(result.confidence, confidence);
+    assert.equal(result.facts.length, status === "failed" ? 0 : 2);
+    assert.equal(
+      result.facts.every((fact) => fact.verificationStatus === "needs_review"),
+      true,
+    );
+    assert.equal(
+      result.warnings.some((warning) => warning.includes("OCR confidence is low")),
+      lowConfidenceWarning && status === "completed",
+    );
+    if (confidence === 34) {
+      assert.ok(result.warnings.some((warning) => warning.includes("very low")));
+    }
+  }
+});
+
+const invalidConfidenceCases: Array<{
+  name: string;
+  result: { text: string; confidence?: number };
+}> = [
+  { name: "missing", result: { text: "Medication: ExampleMedicine\nDose: 5 mg" } },
+  { name: "NaN", result: { text: "Medication: ExampleMedicine\nDose: 5 mg", confidence: Number.NaN } },
+  { name: "negative", result: { text: "Medication: ExampleMedicine\nDose: 5 mg", confidence: -1 } },
+  { name: "above 100", result: { text: "Medication: ExampleMedicine\nDose: 5 mg", confidence: 101 } },
+];
+
+for (const { name, result: recognition } of invalidConfidenceCases) {
+  test(`invalid ${name} OCR confidence fails without creating facts`, async () => {
+    const result = await extractImageMedicalFacts(
+      imageFile(),
+      metadata(`ocr-confidence-${name.replaceAll(" ", "-")}`),
+      PATIENT_A,
+      async () => recognition,
+    );
+
+    assert.equal(result.extractionStatus, "failed");
+    assert.equal(result.document.extractionStatus, "failed");
+    assert.equal(result.confidence, null);
+    assert.equal(result.document.sourceText, recognition.text);
+    assert.equal(result.facts.length, 0);
+    assert.ok(result.warnings.some((warning) => warning.includes("confidence is unavailable or invalid")));
+  });
+}
+
 test("ambiguous doses and missing dates use the existing conservative extraction behavior", async () => {
   const sourceText = "Medication: ExampleMedicine\nDose: 5 mg or 10 mg";
   const result = await extractImageMedicalFacts(
