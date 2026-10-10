@@ -74,6 +74,10 @@ This project is intended for fictional data only. Do not upload real patient rec
 
 Public Vercel URL:[ **\tracemed-five-bay**](https://tracemed-five-bay.vercel.app/)
 
+## Video Demo
+Video Link : 
+[▶ **Watch the TraceMed Demo Video**](public/traceMed.mp4)
+
 ## Team and Contributors
 
 ## 👥 Team Members & Contributions
