@@ -1,4 +1,5 @@
 import { HandoffReport } from "@/components/HandoffReport";
+import { UploadedIntake } from "@/components/UploadedIntake";
 import { demoDocuments, demoFacts } from "@/lib/demo-data";
 import { reconcileMedicalRecords } from "@/lib/medical-reconciliation";
 import { getHandoffReport, listRecords } from "@/lib/repository";
@@ -26,6 +27,8 @@ export default async function RecordsPage() {
         </header>
 
         <HandoffReport report={report} medicalFindings={medicalFindings} />
+
+        <UploadedIntake />
 
         <section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
           <h2 className="text-xl font-semibold text-slate-900">Document timeline</h2>
