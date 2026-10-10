@@ -15,7 +15,7 @@ function makeDocument(overrides: Partial<MedicalDocument> = {}): MedicalDocument
     sourceText: "sample",
     uploadedAt: "2026-01-01T00:00:00.000Z",
     extractionStatus: "completed",
-    fileHash: "hash-1",
+    fileHash: `sha256:${"0".repeat(64)}`,
     ...overrides,
   };
 }
@@ -77,11 +77,15 @@ test("R02: conflicting values for the same patient and field produce a review fi
 });
 
 test("R03: duplicate document fileHash produces a duplicate finding only for same patient", () => {
+  const sameHash = `sha256:${"a".repeat(64)}`;
+  const differentHash = `sha256:${"b".repeat(64)}`;
   const docs = [
-    makeDocument({ id: "doc-3a", patientId: "patient-1", fileHash: "same-hash" }),
-    makeDocument({ id: "doc-3b", patientId: "patient-1", fileHash: "same-hash" }),
-    makeDocument({ id: "doc-3c", patientId: "patient-2", fileHash: "same-hash" }),
-    makeDocument({ id: "doc-3d", patientId: "patient-1", fileHash: "different-hash" }),
+    makeDocument({ id: "doc-3a", patientId: "patient-1", fileHash: sameHash }),
+    makeDocument({ id: "doc-3b", patientId: "patient-1", fileHash: sameHash }),
+    makeDocument({ id: "doc-3c", patientId: "patient-2", fileHash: sameHash }),
+    makeDocument({ id: "doc-3d", patientId: "patient-1", fileHash: differentHash }),
+    makeDocument({ id: "doc-3e", patientId: "patient-1", fileHash: "not-a-reliable-hash" }),
+    makeDocument({ id: "doc-3f", patientId: "patient-1", fileHash: "not-a-reliable-hash" }),
   ];
 
   const findings = reconcileMedicalRecords(docs, []);

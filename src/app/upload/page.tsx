@@ -1,12 +1,18 @@
 'use client';
 
 import { useEffect, useRef, useState } from "react";
-import { extractText } from "@/lib/extract-text";
-import { DEMO_PATIENT_ID } from "@/lib/demo-data";
+import { extractMedicalFacts } from "@/lib/extract-medical-facts";
+import {
+  createUploadPatientId,
+  INTAKE_STORAGE_KEY,
+  parseStoredIntake,
+  reconcileIntakeEntries,
+  type IntakeFormat,
+  type StoredIntake,
+} from "@/lib/intake-storage";
 import type { DocumentKind, MedicalDocument } from "@/lib/types";
 
 const MAX_FILE_SIZE = 5 * 1024 * 1024;
-const STORAGE_KEY = "carebridge:demo:intake:v1";
 
 const documentKinds: { value: DocumentKind; label: string }[] = [
   { value: "lab_report", label: "Lab report" },
@@ -16,15 +22,7 @@ const documentKinds: { value: DocumentKind; label: string }[] = [
   { value: "other", label: "Other" },
 ];
 
-type SupportedFormat = "pdf" | "png" | "jpeg" | "text";
-
-type StoredIntake = {
-  document: MedicalDocument;
-  sizeBytes: number;
-  format: SupportedFormat;
-};
-
-function getSupportedFormat(file: File): SupportedFormat | null {
+function getSupportedFormat(file: File): IntakeFormat | null {
   const extension = file.name.split(".").pop()?.toLowerCase();
   const mediaType = file.type.toLowerCase();
   const matches = (expectedType: string) => mediaType === "" || mediaType === expectedType;
@@ -37,27 +35,6 @@ function getSupportedFormat(file: File): SupportedFormat | null {
   return null;
 }
 
-function isStoredIntake(value: unknown): value is StoredIntake {
-  if (!value || typeof value !== "object") return false;
-
-  const candidate = value as Partial<StoredIntake>;
-  const document = candidate.document;
-  return Boolean(
-    document &&
-      typeof document === "object" &&
-      typeof document.id === "string" &&
-      typeof document.patientId === "string" &&
-      typeof document.title === "string" &&
-      documentKinds.some((kind) => kind.value === document.kind) &&
-      typeof document.originalFileName === "string" &&
-      typeof document.sourceText === "string" &&
-      typeof document.uploadedAt === "string" &&
-      ["pending", "completed", "failed"].includes(document.extractionStatus) &&
-      typeof candidate.sizeBytes === "number" &&
-      ["pdf", "png", "jpeg", "text"].includes(candidate.format ?? ""),
-  );
-}
-
 function formatFileSize(sizeBytes: number): string {
   if (sizeBytes < 1024) return `${sizeBytes} B`;
   return `${(sizeBytes / 1024 / 1024).toFixed(2)} MB`;
@@ -67,30 +44,55 @@ export default function UploadPage() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [category, setCategory] = useState<DocumentKind | "">("");
+  const [selectedPatientId, setSelectedPatientId] = useState("");
   const [validationError, setValidationError] = useState("");
   const [processingMessage, setProcessingMessage] = useState("");
   const [textPreview, setTextPreview] = useState("");
   const [entries, setEntries] = useState<StoredIntake[]>([]);
   const [storageReady, setStorageReady] = useState(false);
   const [storageError, setStorageError] = useState("");
+  const [storageWritable, setStorageWritable] = useState(true);
   const [isProcessing, setIsProcessing] = useState(false);
 
   useEffect(() => {
-    try {
-      const savedValue = window.localStorage.getItem(STORAGE_KEY);
-      if (savedValue) {
-        const parsed: unknown = JSON.parse(savedValue);
-        if (!Array.isArray(parsed) || !parsed.every(isStoredIntake)) {
-          throw new Error("Saved intake data has an unexpected format.");
+    let cancelled = false;
+    async function loadStoredIntake() {
+      await Promise.resolve();
+      try {
+        const stored = parseStoredIntake(window.localStorage.getItem(INTAKE_STORAGE_KEY));
+        if (cancelled) return;
+        setEntries(stored.entries);
+        if (stored.malformed) {
+          setStorageWritable(false);
+          setStorageError("Some saved intake could not be validated. It will not be overwritten; new entries remain visible for this session only.");
+        } else if (stored.migrated) {
+          window.localStorage.setItem(INTAKE_STORAGE_KEY, JSON.stringify(stored.entries));
         }
-        setEntries(parsed);
+      } catch {
+        if (!cancelled) {
+          setStorageWritable(false);
+          setStorageError("Saved demo intake could not be read or migrated in this browser. New entries remain visible for this session only.");
+        }
+      } finally {
+        if (!cancelled) setStorageReady(true);
       }
-    } catch {
-      setStorageError("Saved demo intake could not be read from this browser. You can still process a file in this session.");
-    } finally {
-      setStorageReady(true);
     }
+
+    void loadStoredIntake();
+    return () => {
+      cancelled = true;
+    };
   }, []);
+
+  async function hashFile(file: File): Promise<string | null> {
+    try {
+      const digest = await window.crypto.subtle.digest("SHA-256", await file.arrayBuffer());
+      const hash = Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("");
+      return `sha256:${hash}`;
+    } catch {
+      return null;
+    }
+  }
 
   function validateFile(file: File): string {
     if (!getSupportedFormat(file)) {
@@ -149,56 +151,108 @@ export default function UploadPage() {
         return;
       }
 
-      let sourceText = "";
-      let extractionStatus: MedicalDocument["extractionStatus"] = "pending";
-
-      if (format === "text") {
-        try {
-          sourceText = await extractText(selectedFile);
-        } catch {
-          setProcessingMessage("The text file could not be read. Try selecting it again.");
-          return;
-        }
-
-        if (!sourceText) {
-          setProcessingMessage("This text file is empty. Add synthetic sample text and select it again.");
-          return;
-        }
-
-        extractionStatus = "completed";
-        setTextPreview(sourceText);
-      }
-
-      const document: MedicalDocument = {
+      const patientId = selectedPatientId || createUploadPatientId();
+      const fileHash = await hashFile(selectedFile);
+      const metadata = {
         id: `intake-${crypto.randomUUID()}`,
-        patientId: DEMO_PATIENT_ID,
         title: selectedFile.name,
         kind: category,
         documentDate: null,
         originalFileName: selectedFile.name,
-        sourceText,
         uploadedAt: new Date().toISOString(),
-        extractionStatus,
+        ...(fileHash ? { fileHash } : {}),
       };
-      const entry: StoredIntake = { document, sizeBytes: selectedFile.size, format };
-      const updatedEntries = [entry, ...entries];
+      let document: MedicalDocument;
+      let facts: StoredIntake["facts"] = [];
+      let warnings: string[] = [];
+      let missingFields: string[] = [];
+      const findings: StoredIntake["findings"] = [];
+      let reconciliationStatus: StoredIntake["reconciliationStatus"] = "pending";
+
+      if (format === "text") {
+        let sourceText: string;
+        try {
+          sourceText = await selectedFile.text();
+        } catch {
+          document = {
+            ...metadata,
+            patientId,
+            sourceText: "",
+            extractionStatus: "failed",
+          };
+          const failedEntry: StoredIntake = {
+            document,
+            sizeBytes: selectedFile.size,
+            format,
+            facts: [],
+            warnings: ["The browser could not read this text file. No medical facts were extracted or reconciled."],
+            missingFields: [],
+            findings: [],
+            reconciliationStatus: "failed",
+          };
+          const updatedEntries = [failedEntry, ...entries];
+          setEntries(updatedEntries);
+          try {
+            if (!storageWritable) throw new Error("Storage is unavailable.");
+            window.localStorage.setItem(INTAKE_STORAGE_KEY, JSON.stringify(updatedEntries));
+          } catch {
+            setStorageWritable(false);
+            setStorageError("The read failure is visible for this session but could not be saved in browser storage.");
+          }
+          setProcessingMessage("The text file could not be read. Its failed status is shown below; try selecting a synthetic TXT file again.");
+          return;
+        }
+
+        const extraction = extractMedicalFacts(sourceText, metadata, patientId);
+        document = extraction.document;
+        facts = extraction.facts;
+        warnings = extraction.warnings;
+        missingFields = extraction.missingFields;
+        reconciliationStatus = extraction.extractionStatus === "completed" ? "completed" : "failed";
+        setTextPreview(sourceText);
+        if (!fileHash) warnings.push("A reliable file hash could not be calculated; duplicate-file checking was unavailable.");
+      } else {
+        document = {
+          ...metadata,
+          patientId,
+          sourceText: "",
+          extractionStatus: "pending",
+        };
+        warnings = ["PDF parsing and image OCR are not implemented. File contents remain unparsed and are excluded from reconciliation."];
+        if (!fileHash) warnings.push("A reliable file hash could not be calculated; duplicate-file checking is unavailable.");
+      }
+
+      const entry: StoredIntake = {
+        document,
+        sizeBytes: selectedFile.size,
+        format,
+        facts,
+        warnings,
+        missingFields,
+        findings,
+        reconciliationStatus,
+      };
+      const updatedEntries = reconcileIntakeEntries([entry, ...entries]);
+      const savedEntry = updatedEntries.find((item) => item.document.id === document.id) ?? entry;
       setEntries(updatedEntries);
+      setSelectedPatientId("");
 
       try {
-        window.localStorage.setItem(STORAGE_KEY, JSON.stringify(updatedEntries));
-        setStorageError("");
-        setProcessingMessage(
-          format === "text"
-            ? "Plain text was read and saved in this browser for inspection. No medical facts were generated."
-            : "File metadata was saved in this browser. PDF/image text extraction is not available; status remains pending.",
-        );
+        if (!storageWritable) {
+          throw new Error("Storage is read-only after an earlier validation error.");
+        }
+        window.localStorage.setItem(INTAKE_STORAGE_KEY, JSON.stringify(updatedEntries));
+        setProcessingMessage(format === "text"
+          ? document.extractionStatus === "failed"
+            ? "TXT extraction was unsuccessful because the file is empty or whitespace-only. No facts were extracted or reconciled."
+            : `TXT extraction completed: ${facts.length} fact${facts.length === 1 ? "" : "s"} extracted. Reconciliation found ${savedEntry.findings.length} flag${savedEntry.findings.length === 1 ? "" : "s"} for this fictional profile. All extracted facts need human review.`
+          : "File metadata was saved in this browser. PDF/image extraction and reconciliation remain pending.");
       } catch {
+        setStorageWritable(false);
         setStorageError("Browser storage is unavailable or full. This intake remains visible until you leave or refresh this page.");
-        setProcessingMessage(
-          format === "text"
-            ? "Plain text was read for inspection, but could not be saved in this browser. No medical facts were generated."
-            : "File metadata was accepted for this session but could not be saved. PDF/image text extraction is not available.",
-        );
+        setProcessingMessage(format === "text"
+          ? `TXT extraction completed: ${facts.length} fact${facts.length === 1 ? "" : "s"} extracted. Reconciliation ran, but browser storage failed; this session still needs human review.`
+          : "File metadata was accepted for this session but could not be saved. PDF/image extraction and reconciliation remain pending.");
       }
     } finally {
       setIsProcessing(false);
@@ -206,6 +260,7 @@ export default function UploadPage() {
   }
 
   const selectedFormat = selectedFile ? getSupportedFormat(selectedFile) : null;
+  const patientProfiles = [...new Set(entries.map((entry) => entry.document.patientId))];
 
   return (
     <main className="min-h-screen bg-slate-100 px-4 py-8 sm:px-6 sm:py-10">
@@ -224,6 +279,26 @@ export default function UploadPage() {
             Plain-text files are read in this browser. Intake data is stored in this browser&apos;s localStorage,
             which is demo storage, not a secure medical-record database or permanent cloud storage.
           </section>
+
+          <div>
+            <label htmlFor="patient-profile" className="block text-sm font-semibold text-slate-800">
+              Synthetic intake profile
+            </label>
+            <select
+              id="patient-profile"
+              value={selectedPatientId}
+              onChange={(event) => setSelectedPatientId(event.target.value)}
+              className="mt-2 block w-full rounded-lg border border-slate-300 bg-white px-3 py-3 text-sm text-slate-800"
+            >
+              <option value="">Create a separate fictional profile</option>
+              {patientProfiles.map((patientId, index) => (
+                <option key={patientId} value={patientId}>Continue fictional profile {index + 1}</option>
+              ))}
+            </select>
+            <p className="mt-2 text-xs text-slate-500">
+              Records are compared only within a profile you explicitly choose. Profiles are separate from the fictional handoff demo.
+            </p>
+          </div>
 
           <div>
             <label htmlFor="document-file" className="block text-sm font-semibold text-slate-800">
@@ -306,7 +381,7 @@ export default function UploadPage() {
         {textPreview ? (
           <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
             <h2 className="text-lg font-semibold text-slate-900">Plain-text preview</h2>
-            <p className="mt-1 text-sm text-slate-600">Inspect the captured text. It has not been converted into medical facts.</p>
+            <p className="mt-1 text-sm text-slate-600">Inspect captured text and the explicitly labeled fields below. Every extracted fact still needs human review.</p>
             <pre className="mt-4 max-h-80 overflow-auto whitespace-pre-wrap break-words rounded-lg bg-slate-50 p-4 text-sm leading-6 text-slate-800">{textPreview}</pre>
           </section>
         ) : null}
@@ -325,7 +400,7 @@ export default function UploadPage() {
             <p className="mt-3 text-sm text-slate-600">No demo documents have been added in this browser.</p>
           ) : (
             <ul className="mt-3 divide-y divide-slate-200 rounded-xl border border-slate-200 bg-white">
-              {entries.map(({ document, sizeBytes, format }) => (
+              {entries.map(({ document, sizeBytes, format, facts, warnings, missingFields, findings, reconciliationStatus }) => (
                 <li key={document.id} className="p-4">
                   <div className="flex flex-col justify-between gap-2 sm:flex-row sm:items-start">
                     <div className="min-w-0">
@@ -333,16 +408,67 @@ export default function UploadPage() {
                       <p className="mt-1 text-sm text-slate-600">
                         {documentKinds.find((kind) => kind.value === document.kind)?.label} · {formatFileSize(sizeBytes)} · {format.toUpperCase()}
                       </p>
+                      <p className="mt-1 text-xs text-slate-500">
+                        {new Date(document.uploadedAt).toLocaleString()} · Separate synthetic profile
+                      </p>
                     </div>
-                    <span className={`self-start rounded-full px-2.5 py-1 text-xs font-semibold ${document.extractionStatus === "pending" ? "bg-amber-100 text-amber-800" : document.extractionStatus === "completed" ? "bg-emerald-100 text-emerald-800" : "bg-rose-100 text-rose-800"}`}>
-                      {document.extractionStatus === "completed" ? "Text captured" : document.extractionStatus}
-                    </span>
+                    <div className="flex flex-wrap gap-2 self-start">
+                      <span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${document.extractionStatus === "pending" ? "bg-amber-100 text-amber-800" : document.extractionStatus === "completed" ? "bg-sky-100 text-sky-800" : "bg-rose-100 text-rose-800"}`}>
+                        {document.extractionStatus === "completed" ? `TXT extracted · ${facts.length} facts` : document.extractionStatus === "pending" ? "Extraction pending" : "Extraction failed"}
+                      </span>
+                      <span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${reconciliationStatus === "completed" ? "bg-emerald-100 text-emerald-800" : reconciliationStatus === "failed" ? "bg-rose-100 text-rose-800" : "bg-slate-100 text-slate-700"}`}>
+                        {reconciliationStatus === "completed" ? `Reconciled · ${findings.length} flags` : reconciliationStatus === "failed" ? "Reconciliation failed" : "Not reconciled · pending extraction"}
+                      </span>
+                    </div>
                   </div>
+                  {facts.length > 0 ? (
+                    <div className="mt-4">
+                      <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-500">Extracted fields · needs review</h3>
+                      <ul className="mt-2 grid gap-2 sm:grid-cols-2">
+                        {facts.map((fact) => (
+                          <li key={fact.id} className="rounded-lg border border-slate-200 bg-slate-50 p-3">
+                            <p className="break-words text-xs text-slate-500">{fact.field}</p>
+                            <p className="mt-1 break-words text-sm font-medium text-slate-800">{fact.value}</p>
+                            <p className="mt-1 text-[11px] font-semibold text-amber-800">{fact.verificationStatus.replaceAll("_", " ")}</p>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  ) : null}
+                  {missingFields.length > 0 ? (
+                    <div className="mt-4">
+                      <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-500">Fields not found in labeled text</h3>
+                      <p className="mt-1 text-sm text-slate-600">{missingFields.join(" · ")}</p>
+                    </div>
+                  ) : null}
+                  {warnings.length > 0 ? (
+                    <ul className="mt-3 space-y-1 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
+                      {warnings.map((warning, index) => <li key={`${document.id}-warning-${index}`}>{warning}</li>)}
+                    </ul>
+                  ) : null}
                   {document.sourceText ? (
                     <details className="mt-3">
                       <summary className="cursor-pointer text-sm font-medium text-sky-800">Inspect saved text</summary>
                       <pre className="mt-2 max-h-60 overflow-auto whitespace-pre-wrap break-words rounded-lg bg-slate-50 p-3 text-sm leading-6 text-slate-800">{document.sourceText}</pre>
                     </details>
+                  ) : null}
+                  {reconciliationStatus === "completed" ? (
+                    <div className="mt-4 border-t border-slate-200 pt-3">
+                      <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-500">Reconciliation · human review required</h3>
+                      {findings.length > 0 ? (
+                        <ul className="mt-2 space-y-2">
+                          {findings.map((finding) => (
+                            <li key={finding.id} className="rounded-lg border border-amber-200 bg-white p-3">
+                              <p className="text-xs font-semibold text-amber-900">{finding.ruleId} · {finding.severity.replaceAll("_", " ")} · {finding.status.replaceAll("_", " ")}</p>
+                              <p className="mt-1 text-sm text-slate-700">{finding.message}</p>
+                              <p className="mt-1 break-words text-xs text-slate-500">Supporting files: {finding.documentIds.map((documentId) => entries.find((item) => item.document.id === documentId && item.document.patientId === finding.patientId)?.document.originalFileName ?? `Unknown source (${documentId})`).join(" · ") || "No source files identified."}</p>
+                            </li>
+                          ))}
+                        </ul>
+                      ) : (
+                        <p className="mt-1 text-sm text-slate-600">No reconciliation flags were produced for this document and the selected profile.</p>
+                      )}
+                    </div>
                   ) : null}
                 </li>
               ))}

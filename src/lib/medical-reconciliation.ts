@@ -5,6 +5,7 @@ import type {
 } from "./types.ts";
 
 const EMPTY_TS = "1970-01-01T00:00:00.000Z";
+const SHA256_PATTERN = /^sha256:[a-f0-9]{64}$/i;
 
 function stableHash(input: string): string {
   let hash = 2166136261;
@@ -49,10 +50,6 @@ function earliestUploadedAt(documents: MedicalDocument[]): string {
 
   const sorted = [...documents].sort((a, b) => a.uploadedAt.localeCompare(b.uploadedAt));
   return sorted[0]?.uploadedAt ?? EMPTY_TS;
-}
-
-function isMedicationFact(fact: MedicalFact): boolean {
-  return fact.field.startsWith("medication:") && fact.field.split(":").length >= 3;
 }
 
 function parseMedicationKey(field: string): string | null {
@@ -168,8 +165,8 @@ export function reconcileMedicalRecords(
 
   const fileHashGroups = new Map<string, MedicalDocument[]>();
   for (const document of documents) {
-    if (!document.fileHash || document.fileHash.trim().length === 0) continue;
-    const key = `${document.patientId}::${document.fileHash.trim()}`;
+    if (!document.fileHash || !SHA256_PATTERN.test(document.fileHash)) continue;
+    const key = `${document.patientId}::${document.fileHash.toLowerCase()}`;
     const group = fileHashGroups.get(key) ?? [];
     group.push(document);
     fileHashGroups.set(key, group);

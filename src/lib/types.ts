@@ -62,6 +62,8 @@ export type ExtractionResult = {
   document: MedicalDocument;
   facts: MedicalFact[];
   warnings: string[];
+  missingFields: string[];
+  extractionStatus: MedicalDocument["extractionStatus"];
 };
 
 export type Severity = "low" | "moderate" | "high";

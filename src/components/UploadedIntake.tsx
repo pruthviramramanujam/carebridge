@@ -2,10 +2,13 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
+import {
+  INTAKE_STORAGE_KEY,
+  parseStoredIntake,
+  type StoredIntake,
+} from "@/lib/intake-storage";
 import type { DocumentKind, MedicalDocument } from "@/lib/types";
 
-const STORAGE_KEY = "carebridge:demo:intake:v1";
-const formats = ["pdf", "png", "jpeg", "text"] as const;
 const categories: Record<DocumentKind, string> = {
   lab_report: "Lab report",
   prescription: "Prescription",
@@ -13,36 +16,6 @@ const categories: Record<DocumentKind, string> = {
   discharge_summary: "Discharge summary",
   other: "Other",
 };
-
-type StoredIntake = {
-  document: MedicalDocument;
-  sizeBytes: number;
-  format: (typeof formats)[number];
-};
-
-function isStoredIntake(value: unknown): value is StoredIntake {
-  if (!value || typeof value !== "object") return false;
-
-  const candidate = value as Partial<StoredIntake>;
-  const document = candidate.document;
-  if (!document || typeof document !== "object") return false;
-
-  return (
-    typeof document.id === "string" &&
-    typeof document.patientId === "string" &&
-    typeof document.title === "string" &&
-    Object.hasOwn(categories, document.kind) &&
-    (typeof document.documentDate === "string" || document.documentDate === null) &&
-    typeof document.originalFileName === "string" &&
-    typeof document.sourceText === "string" &&
-    typeof document.uploadedAt === "string" &&
-    ["pending", "completed", "failed"].includes(document.extractionStatus) &&
-    typeof candidate.sizeBytes === "number" &&
-    Number.isFinite(candidate.sizeBytes) &&
-    candidate.sizeBytes >= 0 &&
-    formats.includes(candidate.format as (typeof formats)[number])
-  );
-}
 
 function formatUploadedAt(value: string): string | null {
   const date = new Date(value);
@@ -57,7 +30,7 @@ function formatUploadedAt(value: string): string | null {
 function formatStatus(status: MedicalDocument["extractionStatus"]): string {
   if (status === "pending") return "Pending review";
   if (status === "completed") return "Text captured";
-  return "Read failed";
+  return "Extraction failed";
 }
 
 export function UploadedIntake() {
@@ -66,25 +39,32 @@ export function UploadedIntake() {
   const [storageMessage, setStorageMessage] = useState("");
 
   useEffect(() => {
-    try {
-      const savedValue = window.localStorage.getItem(STORAGE_KEY);
-      if (savedValue) {
-        const parsed: unknown = JSON.parse(savedValue);
-        if (!Array.isArray(parsed)) {
-          throw new Error("Saved intake data is not a list.");
+    let cancelled = false;
+    async function loadStoredIntake() {
+      await Promise.resolve();
+      try {
+        const result = parseStoredIntake(window.localStorage.getItem(INTAKE_STORAGE_KEY));
+        if (cancelled) return;
+        setEntries(result.entries);
+        if (result.migrated && !result.malformed) {
+          window.localStorage.setItem(INTAKE_STORAGE_KEY, JSON.stringify(result.entries));
         }
-
-        const validEntries = parsed.filter(isStoredIntake);
-        setEntries(validEntries);
-        if (validEntries.length !== parsed.length) {
-          setStorageMessage("Some saved intake entries could not be displayed because their data is incomplete.");
+        if (result.malformed) {
+          setStorageMessage("Some saved intake entries could not be validated and were omitted. The reconciled demo report is unaffected.");
         }
+      } catch {
+        if (!cancelled) {
+          setStorageMessage("Saved intake could not be read or migrated in this browser. The reconciled demo report is unaffected.");
+        }
+      } finally {
+        if (!cancelled) setIsLoaded(true);
       }
-    } catch {
-      setStorageMessage("Saved intake could not be read from this browser. The reconciled demo report is unaffected.");
-    } finally {
-      setIsLoaded(true);
     }
+
+    void loadStoredIntake();
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   return (
@@ -105,7 +85,7 @@ export function UploadedIntake() {
       </header>
 
       <p className="mt-3 max-w-3xl text-sm leading-6 text-slate-600">
-        These uploads are separate from the fictional reconciled demo records above. Uploaded files are not included in medical reconciliation; captured text has not been converted into facts or reviewed.
+        These uploads are separate from the fictional reconciled demo records above. Only labeled TXT data in an explicitly selected synthetic profile is reconciled; all extracted facts still need human review. PDF and image uploads remain pending.
       </p>
 
       {storageMessage ? (
@@ -122,7 +102,7 @@ export function UploadedIntake() {
         </p>
       ) : (
         <ul className="mt-4 divide-y divide-slate-200 rounded-xl border border-slate-200 bg-white">
-          {entries.map(({ document, sizeBytes, format }) => {
+          {entries.map(({ document, sizeBytes, format, facts, warnings, missingFields, findings, reconciliationStatus }) => {
             const uploadedAt = formatUploadedAt(document.uploadedAt);
             const status = document.extractionStatus;
 
@@ -144,13 +124,53 @@ export function UploadedIntake() {
                   </div>
                   <div className="flex shrink-0 flex-wrap gap-2">
                     <span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${status === "pending" ? "bg-amber-100 text-amber-800" : status === "completed" ? "bg-sky-100 text-sky-800" : "bg-rose-100 text-rose-800"}`}>
-                      {formatStatus(status)}
+                      {formatStatus(status)}{status === "completed" ? ` · ${facts.length} facts` : ""}
                     </span>
-                    <span className="rounded-full bg-slate-100 px-2.5 py-1 text-xs font-semibold text-slate-700">
-                      Not reconciled
+                    <span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${reconciliationStatus === "completed" ? "bg-emerald-100 text-emerald-800" : reconciliationStatus === "failed" ? "bg-rose-100 text-rose-800" : "bg-slate-100 text-slate-700"}`}>
+                      {reconciliationStatus === "completed" ? `Reconciled · ${findings.length} flags` : reconciliationStatus === "failed" ? "Reconciliation failed" : "Not reconciled · pending extraction"}
                     </span>
                   </div>
                 </div>
+                {facts.length > 0 ? (
+                  <div className="mt-4">
+                    <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Extracted fields · needs review</p>
+                    <ul className="mt-2 grid gap-2 sm:grid-cols-2">
+                      {facts.map((fact) => (
+                        <li key={fact.id} className="rounded-lg border border-slate-200 bg-slate-50 p-3">
+                          <p className="break-words text-xs text-slate-500">{fact.field}</p>
+                          <p className="mt-1 break-words text-sm font-medium text-slate-800">{fact.value}</p>
+                          <p className="mt-1 text-[11px] font-semibold text-amber-800">{fact.verificationStatus.replaceAll("_", " ")}</p>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                ) : null}
+                {missingFields.length > 0 ? (
+                  <p className="mt-3 text-sm text-slate-600"><span className="font-medium">Fields not found:</span> {missingFields.join(" · ")}</p>
+                ) : null}
+                {warnings.length > 0 ? (
+                  <ul className="mt-3 space-y-1 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
+                    {warnings.map((warning, index) => <li key={`${document.id}-warning-${index}`}>{warning}</li>)}
+                  </ul>
+                ) : null}
+                {reconciliationStatus === "completed" ? (
+                  <div className="mt-4 border-t border-slate-200 pt-3">
+                    <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Reconciliation · human review required</p>
+                    {findings.length > 0 ? (
+                      <ul className="mt-2 space-y-2">
+                        {findings.map((finding) => (
+                          <li key={finding.id} className="rounded-lg border border-amber-200 bg-white p-3">
+                            <p className="text-xs font-semibold text-amber-900">{finding.ruleId} · {finding.severity.replaceAll("_", " ")} · {finding.status.replaceAll("_", " ")}</p>
+                            <p className="mt-1 text-sm text-slate-700">{finding.message}</p>
+                            <p className="mt-1 text-xs text-slate-500">Supporting files: {finding.documentIds.map((documentId) => entries.find((entry) => entry.document.id === documentId && entry.document.patientId === finding.patientId)?.document.originalFileName ?? `Unknown source (${documentId})`).join(" · ") || "No source files identified."}</p>
+                          </li>
+                        ))}
+                      </ul>
+                    ) : (
+                      <p className="mt-1 text-sm text-slate-600">Extraction completed, but no reconciliation flags were produced for this document and its selected synthetic profile.</p>
+                    )}
+                  </div>
+                ) : null}
               </li>
             );
           })}
