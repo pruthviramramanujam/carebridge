@@ -2,6 +2,8 @@
 
 import { useEffect, useRef, useState } from "react";
 import { extractMedicalFacts } from "@/lib/extract-medical-facts";
+import { extractImageMedicalFacts } from "@/lib/image-ocr";
+import { recognizeImageInBrowser } from "@/lib/tesseract-browser";
 import {
   createUploadPatientId,
   INTAKE_STORAGE_KEY,
@@ -42,17 +44,20 @@ function formatFileSize(sizeBytes: number): string {
 
 export default function UploadPage() {
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const imageAbortControllerRef = useRef<AbortController | null>(null);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [category, setCategory] = useState<DocumentKind | "">("");
   const [selectedPatientId, setSelectedPatientId] = useState("");
   const [validationError, setValidationError] = useState("");
   const [processingMessage, setProcessingMessage] = useState("");
   const [textPreview, setTextPreview] = useState("");
+  const [textPreviewTitle, setTextPreviewTitle] = useState("Plain-text preview");
   const [entries, setEntries] = useState<StoredIntake[]>([]);
   const [storageReady, setStorageReady] = useState(false);
   const [storageError, setStorageError] = useState("");
   const [storageWritable, setStorageWritable] = useState(true);
   const [isProcessing, setIsProcessing] = useState(false);
+  const [canCancelImageProcessing, setCanCancelImageProcessing] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -110,6 +115,7 @@ export default function UploadPage() {
     setValidationError(file ? validateFile(file) : "");
     setProcessingMessage("");
     setTextPreview("");
+    setTextPreviewTitle("Plain-text preview");
   }
 
   function removeSelectedFile() {
@@ -117,6 +123,8 @@ export default function UploadPage() {
     setValidationError("");
     setProcessingMessage("");
     setTextPreview("");
+    setTextPreviewTitle("Plain-text preview");
+    imageAbortControllerRef.current?.abort();
     if (fileInputRef.current) fileInputRef.current.value = "";
   }
 
@@ -124,6 +132,7 @@ export default function UploadPage() {
     event.preventDefault();
     setProcessingMessage("");
     setTextPreview("");
+    setTextPreviewTitle("Plain-text preview");
 
     if (!selectedFile) {
       setValidationError("Select a file to continue.");
@@ -143,6 +152,11 @@ export default function UploadPage() {
 
     setValidationError("");
     setIsProcessing(true);
+    const imageController = selectedFormat === "png" || selectedFormat === "jpeg"
+      ? new AbortController()
+      : null;
+    imageAbortControllerRef.current = imageController;
+    setCanCancelImageProcessing(imageController !== null);
 
     try {
       const format = getSupportedFormat(selectedFile);
@@ -211,6 +225,36 @@ export default function UploadPage() {
         reconciliationStatus = extraction.extractionStatus === "completed" ? "completed" : "failed";
         setTextPreview(sourceText);
         if (!fileHash) warnings.push("A reliable file hash could not be calculated; duplicate-file checking was unavailable.");
+      } else if (format === "png" || format === "jpeg") {
+        const extraction = await extractImageMedicalFacts(
+          selectedFile,
+          metadata,
+          patientId,
+          recognizeImageInBrowser,
+          ({ stage, progress }) => {
+            const stageMessage = stage === "reading-image"
+              ? "Reading image…"
+              : stage === "extracting-text"
+                ? "Extracting text with browser-based OCR…"
+                : "Extracting labeled medical facts…";
+            setProcessingMessage(
+              progress === undefined || stage !== "extracting-text"
+                ? stageMessage
+                : `${stageMessage} ${Math.round(progress * 100)}%`,
+            );
+          },
+          imageController?.signal,
+        );
+        document = extraction.document;
+        facts = extraction.facts;
+        warnings = extraction.warnings;
+        missingFields = extraction.missingFields;
+        reconciliationStatus = extraction.extractionStatus === "completed" ? "completed" : "failed";
+        if (document.sourceText) {
+          setTextPreview(document.sourceText);
+          setTextPreviewTitle("OCR-recognized text preview");
+        }
+        if (!fileHash) warnings.push("A reliable file hash could not be calculated; duplicate-file checking was unavailable.");
       } else {
         document = {
           ...metadata,
@@ -218,7 +262,7 @@ export default function UploadPage() {
           sourceText: "",
           extractionStatus: "pending",
         };
-        warnings = ["PDF parsing and image OCR are not implemented. File contents remain unparsed and are excluded from reconciliation."];
+        warnings = ["PDF parsing is not implemented. File contents remain unparsed and are excluded from reconciliation."];
         if (!fileHash) warnings.push("A reliable file hash could not be calculated; duplicate-file checking is unavailable.");
       }
 
@@ -246,15 +290,31 @@ export default function UploadPage() {
           ? document.extractionStatus === "failed"
             ? "TXT extraction was unsuccessful because the file is empty or whitespace-only. No facts were extracted or reconciled."
             : `TXT extraction completed: ${facts.length} fact${facts.length === 1 ? "" : "s"} extracted. Reconciliation found ${savedEntry.findings.length} flag${savedEntry.findings.length === 1 ? "" : "s"} for this fictional profile. All extracted facts need human review.`
-          : "File metadata was saved in this browser. PDF/image extraction and reconciliation remain pending.");
+          : format === "pdf"
+            ? "PDF metadata was saved in this browser. PDF parsing and reconciliation remain pending."
+            : document.extractionStatus === "failed"
+              ? warnings[0] ?? "Image OCR was unsuccessful; no facts were extracted or reconciled."
+              : facts.length === 0
+                ? "OCR text was captured, but no supported labeled facts were extracted. Review the recognized text and warnings below."
+                : `Image OCR completed: ${facts.length} fact${facts.length === 1 ? "" : "s"} extracted for human review. Reconciliation found ${savedEntry.findings.length} flag${savedEntry.findings.length === 1 ? "" : "s"} for this fictional profile.`);
       } catch {
         setStorageWritable(false);
         setStorageError("Browser storage is unavailable or full. This intake remains visible until you leave or refresh this page.");
         setProcessingMessage(format === "text"
           ? `TXT extraction completed: ${facts.length} fact${facts.length === 1 ? "" : "s"} extracted. Reconciliation ran, but browser storage failed; this session still needs human review.`
-          : "File metadata was accepted for this session but could not be saved. PDF/image extraction and reconciliation remain pending.");
+          : format === "pdf"
+            ? "PDF metadata was accepted for this session but could not be saved. PDF parsing and reconciliation remain pending."
+            : `Image OCR results remain visible for this session, but browser storage failed. ${facts.length} fact${facts.length === 1 ? "" : "s"} need human review.`);
+      }
+    } catch (error) {
+      if (error instanceof DOMException && error.name === "AbortError") {
+        setProcessingMessage("Image processing was cancelled. No intake record was saved.");
+      } else {
+        setProcessingMessage("The selected file could not be processed. No additional facts were saved.");
       }
     } finally {
+      if (imageAbortControllerRef.current === imageController) imageAbortControllerRef.current = null;
+      setCanCancelImageProcessing(false);
       setIsProcessing(false);
     }
   }
@@ -275,7 +335,7 @@ export default function UploadPage() {
 
         <form onSubmit={handleSubmit} className="space-y-6 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:p-8">
           <section className="rounded-xl border border-sky-200 bg-sky-50 p-4 text-sm leading-6 text-sky-950">
-            PDF and image files are accepted as metadata only; PDF parsing and image OCR are not implemented.
+            PNG and JPEG text recognition runs in this browser. PDF files remain metadata-only and pending.
             Plain-text files are read in this browser. Intake data is stored in this browser&apos;s localStorage,
             which is demo storage, not a secure medical-record database or permanent cloud storage.
           </section>
@@ -376,12 +436,21 @@ export default function UploadPage() {
           >
             {isProcessing ? "Processing…" : storageReady ? "Process demo file" : "Loading saved intake…"}
           </button>
+          {isProcessing && canCancelImageProcessing ? (
+            <button
+              type="button"
+              onClick={() => imageAbortControllerRef.current?.abort()}
+              className="ml-3 rounded-lg border border-slate-300 px-4 py-3 text-sm font-semibold text-slate-700 hover:bg-slate-100"
+            >
+              Cancel image processing
+            </button>
+          ) : null}
         </form>
 
         {textPreview ? (
           <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
-            <h2 className="text-lg font-semibold text-slate-900">Plain-text preview</h2>
-            <p className="mt-1 text-sm text-slate-600">Inspect captured text and the explicitly labeled fields below. Every extracted fact still needs human review.</p>
+            <h2 className="text-lg font-semibold text-slate-900">{textPreviewTitle}</h2>
+            <p className="mt-1 text-sm text-slate-600">Inspect the captured text and explicitly labeled fields below. Every extracted fact still needs human review.</p>
             <pre className="mt-4 max-h-80 overflow-auto whitespace-pre-wrap break-words rounded-lg bg-slate-50 p-4 text-sm leading-6 text-slate-800">{textPreview}</pre>
           </section>
         ) : null}
@@ -414,7 +483,7 @@ export default function UploadPage() {
                     </div>
                     <div className="flex flex-wrap gap-2 self-start">
                       <span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${document.extractionStatus === "pending" ? "bg-amber-100 text-amber-800" : document.extractionStatus === "completed" ? "bg-sky-100 text-sky-800" : "bg-rose-100 text-rose-800"}`}>
-                        {document.extractionStatus === "completed" ? `TXT extracted · ${facts.length} facts` : document.extractionStatus === "pending" ? "Extraction pending" : "Extraction failed"}
+                        {document.extractionStatus === "completed" ? `${format === "text" ? "TXT" : "OCR"} text captured · ${facts.length} facts` : document.extractionStatus === "pending" ? "Extraction pending" : "Extraction failed"}
                       </span>
                       <span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${reconciliationStatus === "completed" ? "bg-emerald-100 text-emerald-800" : reconciliationStatus === "failed" ? "bg-rose-100 text-rose-800" : "bg-slate-100 text-slate-700"}`}>
                         {reconciliationStatus === "completed" ? `Reconciled · ${findings.length} flags` : reconciliationStatus === "failed" ? "Reconciliation failed" : "Not reconciled · pending extraction"}

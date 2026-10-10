@@ -27,9 +27,9 @@ function formatUploadedAt(value: string): string | null {
   }).format(date);
 }
 
-function formatStatus(status: MedicalDocument["extractionStatus"]): string {
+function formatStatus(status: MedicalDocument["extractionStatus"], format: StoredIntake["format"], factCount: number): string {
   if (status === "pending") return "Pending review";
-  if (status === "completed") return "Text captured";
+  if (status === "completed") return `${format === "text" ? "Text" : "OCR text"} captured · ${factCount} facts`;
   return "Extraction failed";
 }
 
@@ -85,7 +85,7 @@ export function UploadedIntake() {
       </header>
 
       <p className="mt-3 max-w-3xl text-sm leading-6 text-slate-600">
-        These uploads are separate from the fictional reconciled demo records above. Only labeled TXT data in an explicitly selected synthetic profile is reconciled; all extracted facts still need human review. PDF and image uploads remain pending.
+        These uploads are separate from the fictional reconciled demo records above. Labeled TXT and OCR-recognized image text are reconciled only within the explicitly selected synthetic profile; all extracted facts still need human review. PDF uploads remain pending.
       </p>
 
       {storageMessage ? (
@@ -124,7 +124,7 @@ export function UploadedIntake() {
                   </div>
                   <div className="flex shrink-0 flex-wrap gap-2">
                     <span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${status === "pending" ? "bg-amber-100 text-amber-800" : status === "completed" ? "bg-sky-100 text-sky-800" : "bg-rose-100 text-rose-800"}`}>
-                      {formatStatus(status)}{status === "completed" ? ` · ${facts.length} facts` : ""}
+                      {formatStatus(status, format, facts.length)}
                     </span>
                     <span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${reconciliationStatus === "completed" ? "bg-emerald-100 text-emerald-800" : reconciliationStatus === "failed" ? "bg-rose-100 text-rose-800" : "bg-slate-100 text-slate-700"}`}>
                       {reconciliationStatus === "completed" ? `Reconciled · ${findings.length} flags` : reconciliationStatus === "failed" ? "Reconciliation failed" : "Not reconciled · pending extraction"}
@@ -152,6 +152,14 @@ export function UploadedIntake() {
                   <ul className="mt-3 space-y-1 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
                     {warnings.map((warning, index) => <li key={`${document.id}-warning-${index}`}>{warning}</li>)}
                   </ul>
+                ) : null}
+                {document.sourceText ? (
+                  <details className="mt-3">
+                    <summary className="cursor-pointer text-sm font-medium text-sky-800">
+                      Inspect {format === "text" ? "saved text" : "OCR-recognized text"}
+                    </summary>
+                    <pre className="mt-2 max-h-60 overflow-auto whitespace-pre-wrap break-words rounded-lg bg-slate-50 p-3 text-sm leading-6 text-slate-800">{document.sourceText}</pre>
+                  </details>
                 ) : null}
                 {reconciliationStatus === "completed" ? (
                   <div className="mt-4 border-t border-slate-200 pt-3">

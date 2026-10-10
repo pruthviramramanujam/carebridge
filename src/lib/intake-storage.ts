@@ -168,7 +168,9 @@ export function isStoredIntake(value: unknown): value is StoredIntake {
   );
   if (!factsBelongToDocument) return false;
 
-  if (entry.format === "text" && entry.document.extractionStatus === "completed") {
+  const supportsTextExtraction = entry.format === "text" ||
+    ((entry.format === "png" || entry.format === "jpeg") && entry.document.extractionStatus !== "pending");
+  if (supportsTextExtraction && entry.document.extractionStatus === "completed") {
     if (!entry.document.sourceText.trim()) return false;
     const extraction = extractMedicalFacts(
       entry.document.sourceText,
@@ -186,9 +188,17 @@ export function isStoredIntake(value: unknown): value is StoredIntake {
     ) return false;
   }
 
-  if (entry.format === "text") {
+  if (supportsTextExtraction) {
     if (entry.document.extractionStatus === "completed" && entry.document.sourceText.trim()) {
       return entry.reconciliationStatus === "completed";
+    }
+    if (entry.format !== "text" && entry.document.extractionStatus === "failed") {
+      return (
+        entry.reconciliationStatus === "failed" &&
+        entry.facts.length === 0 &&
+        entry.findings.length === 0 &&
+        entry.warnings.length > 0
+      );
     }
     return (
       entry.document.extractionStatus === "failed" &&
@@ -200,6 +210,10 @@ export function isStoredIntake(value: unknown): value is StoredIntake {
   }
 
   return (
+    entry.format === "pdf" ||
+    entry.format === "png" ||
+    entry.format === "jpeg"
+  ) && (
     entry.document.extractionStatus === "pending" &&
     entry.reconciliationStatus === "pending" &&
     entry.document.sourceText.length === 0 &&
@@ -298,7 +312,11 @@ export function reconcileIntakeEntries(entries: StoredIntake[]): StoredIntake[] 
   const safeEntrySet = new Set(safeEntries);
   const byPatient = new Map<string, StoredIntake[]>();
   for (const entry of safeEntries) {
-    if (entry.format !== "text" || entry.document.extractionStatus !== "completed" || entry.reconciliationStatus !== "completed") continue;
+    if (
+      entry.format === "pdf" ||
+      entry.document.extractionStatus !== "completed" ||
+      entry.reconciliationStatus !== "completed"
+    ) continue;
     const patientEntries = byPatient.get(entry.document.patientId) ?? [];
     patientEntries.push(entry);
     byPatient.set(entry.document.patientId, patientEntries);
